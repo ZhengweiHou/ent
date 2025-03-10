@@ -20,6 +20,7 @@ const (
 	SQLite   = "sqlite3"
 	Postgres = "postgres"
 	Gremlin  = "gremlin"
+	GoIbmDb  = "go_ibm_db"
 )
 
 // ExecQuerier wraps the 2 database operations.

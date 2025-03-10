@@ -1905,8 +1905,47 @@ func (c *creator) insertLastID(ctx context.Context, insert *sql.InsertBuilder) e
 	if err != nil {
 		return err
 	}
-	// MySQL does not support the "RETURNING" clause.
-	if insert.Dialect() != dialect.MySQL {
+
+	switch insert.Dialect() {
+	case dialect.MySQL:
+		// MySQL.
+		var res sql.Result
+		if err := c.tx.Exec(ctx, query, args, &res); err != nil {
+			return err
+		}
+		// If the ID field is not numeric (e.g. string),
+		// there is no way to scan the LAST_INSERT_ID.
+		if c.ID.Type.Numeric() {
+			id, err := res.LastInsertId()
+			if err != nil {
+				return err
+			}
+			c.ID.Value = id
+		}
+		return nil
+	case dialect.GoIbmDb:
+		// DB2
+		var res sql.Result
+		if err := c.tx.Exec(ctx, query, args, &res); err != nil {
+			return err
+		}
+		if c.ID.Type.Numeric() {
+			//getIdQuery := "SELECT IDENTITY_VAL_LOCAL() FROM SYSIBM.SYSDUMMY1"
+			getIdQuery := "VALUES IDENTITY_VAL_LOCAL()"
+			id := int64(0)
+			rows := &sql.Rows{}
+
+			err = c.tx.Query(ctx, getIdQuery, []any{}, rows)
+			if err != nil {
+				return err
+			}
+			if rows.Next() {
+				rows.Scan(&id)
+			}
+			c.ID.Value = id
+		}
+		return nil
+	default:
 		rows := &sql.Rows{}
 		if err := c.tx.Query(ctx, query, args, rows); err != nil {
 			return err
@@ -1930,21 +1969,7 @@ func (c *creator) insertLastID(ctx context.Context, insert *sql.InsertBuilder) e
 			return sql.ScanOne(rows, &c.ID.Value)
 		}
 	}
-	// MySQL.
-	var res sql.Result
-	if err := c.tx.Exec(ctx, query, args, &res); err != nil {
-		return err
-	}
-	// If the ID field is not numeric (e.g. string),
-	// there is no way to scan the LAST_INSERT_ID.
-	if c.ID.Type.Numeric() {
-		id, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		c.ID.Value = id
-	}
-	return nil
+
 }
 
 // insertLastIDs invokes the batch insert query on the transaction and returns the LastInsertID of all entities.
@@ -1953,8 +1978,62 @@ func (c *batchCreator) insertLastIDs(ctx context.Context, tx dialect.ExecQuerier
 	if err != nil {
 		return err
 	}
-	// MySQL does not support the "RETURNING" clause.
-	if insert.Dialect() != dialect.MySQL {
+
+	switch insert.Dialect() {
+	case dialect.MySQL:
+		// MySQL.
+		var res sql.Result
+		if err := tx.Exec(ctx, query, args, &res); err != nil {
+			return err
+		}
+		// If the ID field is not numeric (e.g. string),
+		// there is no way to scan the LAST_INSERT_ID.
+		if len(c.Nodes) > 0 && c.Nodes[0].ID.Type.Numeric() {
+			id, err := res.LastInsertId()
+			if err != nil {
+				return err
+			}
+			affected, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			// Assume the ID field is AUTO_INCREMENT
+			// if its type is numeric.
+			for i := 0; int64(i) < affected && i < len(c.Nodes); i++ {
+				c.Nodes[i].ID.Value = id + int64(i)
+			}
+		}
+		return nil
+	case dialect.GoIbmDb:
+		return errors.New("not implemented")
+		/*
+			var res sql.Result
+			if err := tx.Exec(ctx, query, args, &res); err != nil {
+				return err
+			}
+			if len(c.Nodes) > 0 && c.Nodes[0].ID.Type.Numeric() {
+				getIdQuery := "SELECT IDENTITY_VAL_LOCAL() FROM SYSIBM.SYSDUMMY1" // 批量插入时无法查询到最后插入的ID
+				id := int64(0)
+				rows := &sql.Rows{}
+
+				err = tx.Query(ctx, getIdQuery, []any{}, rows)
+				if err != nil {
+					return err
+				}
+				if rows.Next() {
+					rows.Scan(&id)
+				}
+				affected, err := res.RowsAffected()
+				if err != nil {
+					return err
+				}
+				for i := 0; int64(i) < affected && i < len(c.Nodes); i++ {
+					c.Nodes[i].ID.Value = id + int64(i)
+				}
+			}
+			return nil
+		*/
+	default:
 		rows := &sql.Rows{}
 		if err := tx.Query(ctx, query, args, rows); err != nil {
 			return err
@@ -1985,29 +2064,6 @@ func (c *batchCreator) insertLastIDs(ctx context.Context, tx dialect.ExecQuerier
 		}
 		return rows.Err()
 	}
-	// MySQL.
-	var res sql.Result
-	if err := tx.Exec(ctx, query, args, &res); err != nil {
-		return err
-	}
-	// If the ID field is not numeric (e.g. string),
-	// there is no way to scan the LAST_INSERT_ID.
-	if len(c.Nodes) > 0 && c.Nodes[0].ID.Type.Numeric() {
-		id, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		affected, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		// Assume the ID field is AUTO_INCREMENT
-		// if its type is numeric.
-		for i := 0; int64(i) < affected && i < len(c.Nodes); i++ {
-			c.Nodes[i].ID.Value = id + int64(i)
-		}
-	}
-	return nil
 }
 
 // rollback calls to tx.Rollback and wraps the given error with the rollback error if occurred.

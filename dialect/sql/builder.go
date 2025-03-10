@@ -3486,6 +3486,9 @@ func (b *Builder) Quote(ident string) string {
 			return strings.ReplaceAll(ident, "`", `"`)
 		}
 		quote = `"`
+	case b.ibmdb():
+		// IBM DB2 does not support double quotes for identifiers.
+		quote = ""
 	// An identifier for unknown dialect.
 	case b.dialect == "" && strings.ContainsAny(ident, "`\""):
 		return ident
@@ -3506,6 +3509,9 @@ func (b *Builder) Ident(s string) *Builder {
 		// Modifiers and aggregation functions that
 		// were called without dialect information.
 		b.WriteString(strings.ReplaceAll(s, "`", `"`))
+	case b.ibmdb():
+		// IBM DB2 does not support double quotes for identifiers.
+		b.WriteString(strings.ReplaceAll(s, "`", ""))
 	default:
 		b.WriteString(s)
 	}
@@ -3844,6 +3850,11 @@ func (b Builder) postgres() bool {
 // sqlite reports if the builder dialect is SQLite.
 func (b Builder) sqlite() bool {
 	return b.Dialect() == dialect.SQLite
+}
+
+// ibmdb reports if the builder dialect is ibmdb.
+func (b Builder) ibmdb() bool {
+	return b.Dialect() == dialect.GoIbmDb
 }
 
 // fromIdent sets the builder dialect from the identifier format.

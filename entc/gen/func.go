@@ -221,6 +221,7 @@ func snake(s string) string {
 			}
 		}
 		b.WriteRune(unicode.ToLower(r))
+		//b.WriteRune(unicode.ToUpper(r)) // 调整为大写
 	}
 	return b.String()
 }
